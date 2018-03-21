@@ -1,5 +1,5 @@
 [package]
-name = "qosprobe"
+name = "qosmap"
 version = "0.1.0"
 authors = ["Paul Hüber <phueber@kernsp.in>"]
 
