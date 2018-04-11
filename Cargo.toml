@@ -2,6 +2,3 @@
 name = "qosmap"
 version = "0.1.0"
 authors = ["Paul Hüber <phueber@kernsp.in>"]
-
-[dependencies.pnet]
-version = "0.21.0"
