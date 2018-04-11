@@ -187,4 +187,59 @@ mod tests {
         assert_eq!(reseq.missing, []);
         assert_eq!(reseq.dups, 4);
     }
+
+    #[test]
+    fn seq_reseq() {
+        let mut seq = Sequencer::new(mark);
+        let mut reseq = ReSequencer::new(read_seq);
+        let mut s: u32 = 0;
+
+        seq.mark(&mut s);
+        reseq.track(& s);
+        assert_eq!(reseq.missing, []);
+        assert_eq!(reseq.dups, 0);
+
+        seq.mark(&mut s);
+        seq.mark(&mut s);
+        reseq.track(& s);
+        assert_eq!(reseq.missing, [(0, 0)]);
+        assert_eq!(reseq.dups, 0);
+        assert_eq!(s, 1);
+
+        seq.mark(&mut s);
+        reseq.track(& s);
+        reseq.track(& s);
+        assert_eq!(reseq.missing, [(0, 0)]);
+        assert_eq!(reseq.dups, 1);
+        assert_eq!(s, 2);
+
+        seq.mark(&mut s);
+        seq.mark(&mut s);
+        seq.mark(&mut s);
+        seq.mark(&mut s);
+        seq.mark(&mut s);
+        seq.mark(&mut s);
+        reseq.track(& s);
+        assert_eq!(reseq.missing, [(0, 0), (3, 7)]);
+        assert_eq!(reseq.dups, 1);
+        assert_eq!(s, 8);
+
+        reseq.track(& 4u32);
+        assert_eq!(reseq.missing, [(0, 0), (3, 3), (5, 7)]);
+
+        reseq.track(& 3u32);
+        assert_eq!(reseq.missing, [(0, 0), (5, 7)]);
+
+        reseq.track(& 5u32);
+        assert_eq!(reseq.missing, [(0, 0), (6, 7)]);
+
+        reseq.track(& 7u32);
+        assert_eq!(reseq.missing, [(0, 0), (6, 6)]);
+
+        reseq.track(& 0u32);
+        assert_eq!(reseq.missing, [(6, 6)]);
+
+        reseq.track(& 6u32);
+        assert_eq!(reseq.missing, []);
+    }
 }
