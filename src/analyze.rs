@@ -4,7 +4,7 @@ pub mod sequence {
     pub struct ReSequencer<T> {
         last_seq: Option<u32>,
         pub missing: Vec<(u32, u32)>,
-        dups: u32,
+        pub dups: u32,
         // TODO return Result()
         read_seq: fn(& T) -> u32,
     }
@@ -105,11 +105,14 @@ pub mod sequence {
 
 #[cfg(test)]
 mod tests {
-    use super::sequence::Sequencer;
+    use super::sequence::*;
     use std;
     
     fn mark(d: &mut u32, v: u32) {
         *d = v;
+    }
+    fn read_seq(d: & u32) -> u32 {
+        *d
     }
     #[test]
     fn seq_instance() {
@@ -123,5 +126,65 @@ mod tests {
         assert_eq!(s, std::u32::MAX);
         seq.mark(&mut s);
         assert_eq!(s, 0);
+    }
+    
+    #[test]
+    fn reseq_instance() {
+        let _reseq = ReSequencer::new(read_seq);
+    }
+    
+    #[test]
+    fn reseq_missing() {
+        let mut reseq = ReSequencer::new(read_seq);
+        reseq.track(& 0u32);
+        reseq.track(& 2u32);
+        assert_eq!(reseq.missing[0], (1, 1));
+    }
+    
+    #[test]
+    fn reseq_missing_wrapping() {
+        let mut reseq = ReSequencer::new(read_seq);
+        reseq.track(& std::u32::MAX);
+        reseq.track(& 1u32);
+        assert_eq!(reseq.missing[0], (0, 0));
+    }
+    
+    #[test]
+    fn reseq_missing_wrapping_split() {
+        let mut reseq = ReSequencer::new(read_seq);
+        reseq.track(& (std::u32::MAX - 1));
+        reseq.track(& 1u32);
+        assert_eq!(reseq.missing[0], (std::u32::MAX, std::u32::MAX));
+        assert_eq!(reseq.missing[1], (0, 0));
+    }
+    
+    #[test]
+    fn reseq_dup_cur() {
+        let mut reseq = ReSequencer::new(read_seq);
+        reseq.track(& 0u32);
+        reseq.track(& 0u32);
+        assert_eq!(reseq.missing, []);
+        assert_eq!(reseq.dups, 1);
+    }
+    
+    #[test]
+    fn reseq_dup_old() {
+        let mut reseq = ReSequencer::new(read_seq);
+        reseq.track(& 2u32);
+        reseq.track(& 0u32);
+        assert_eq!(reseq.missing, []);
+        assert_eq!(reseq.dups, 1);
+    }
+    
+    #[test]
+    fn reseq_dup_multiple() {
+        let mut reseq = ReSequencer::new(read_seq);
+        reseq.track(& 8u32);
+        reseq.track(& 0u32);
+        reseq.track(& 1u32);
+        reseq.track(& 3u32);
+        reseq.track(& 8u32);
+        assert_eq!(reseq.missing, []);
+        assert_eq!(reseq.dups, 4);
     }
 }
