@@ -102,3 +102,26 @@ pub mod sequence {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::sequence::Sequencer;
+    use std;
+    
+    fn mark(d: &mut u32, v: u32) {
+        *d = v;
+    }
+    #[test]
+    fn seq_instance() {
+        let _seq = Sequencer::new(mark);
+    }
+    #[test]
+    fn seq_wrap() {
+        let mut seq = Sequencer::new(mark);
+        let mut s: u32 = 0;
+        seq.mark(&mut s);
+        assert_eq!(s, std::u32::MAX);
+        seq.mark(&mut s);
+        assert_eq!(s, 0);
+    }
+}
