@@ -36,7 +36,7 @@ pub mod sequence {
             }
             let mut found: Option<usize> = None;
             for (idx, v) in self.missing.iter_mut().enumerate() {
-                if v.1 >= seq.0 && seq.0 <= v.0 {
+                if v.1 >= seq.0 && v.0 <= seq.0 {
                     found = Some(idx);
                     break;
                 }
