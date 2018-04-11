@@ -54,7 +54,7 @@ pub mod sequence {
                     } else {
                         let tmp = v.1;
                         self.missing[idx].1 = (seq - one).0;
-                        self.missing.insert(idx, ((seq + one).0, tmp));
+                        self.missing.insert(idx + 1, ((seq + one).0, tmp));
                     }
                 },
                 None => {
