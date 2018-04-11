@@ -58,7 +58,7 @@ pub mod sequence {
                     }
                 },
                 None => {
-                    if (seq - Wrapping(self.last_seq.unwrap())).0 > (std::u32::MAX/2) {
+                    if (seq - expected).0 > (std::u32::MAX/2) {
                         self.dups += 1;
                     } else {
                         if expected < seq {
