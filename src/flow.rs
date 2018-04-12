@@ -11,7 +11,12 @@ pub struct Flow {
 }
 
 impl Flow {
-    pub fn from_socket(pps: u32, payload_len: usize, duration: Duration, sk: UdpSocket) -> Flow {
+    pub fn from_socket(
+        pps: u32,
+        payload_len: usize,
+        duration: Duration,
+        sk: UdpSocket,
+    ) -> Flow {
         Flow {
             pps,
             payload_len,
@@ -24,13 +29,13 @@ impl Flow {
     }
 
     pub fn start_xmit(&self) {
-        let gap = Duration::new(0, 1_000_000_000/ self.pps );
+        let gap = Duration::new(0, 1_000_000_000 / self.pps);
         let started_at = Instant::now();
 
         while self.duration > Instant::now().duration_since(started_at) {
             let data = vec![0; self.payload_len];
             sleep(gap);
-            self.sk.send(& data);
+            self.sk.send(&data);
         }
     }
 }
@@ -57,9 +62,10 @@ mod tests {
     #[test]
     fn flow_xmit() {
         let mut sk = UdpSocket::bind("127.0.0.1:48002").expect("bind socket");
-        let mut sk_rcv = UdpSocket::bind("127.0.0.1:48102").expect("bind socket");
+        let mut sk_rcv =
+            UdpSocket::bind("127.0.0.1:48102").expect("bind socket");
         let size = 100;
-        let mut buffer = [0;2000];
+        let mut buffer = [0; 2000];
         sk.connect("127.0.0.1:48102");
         let mut flow = Flow::from_socket(
             125,
@@ -69,7 +75,9 @@ mod tests {
             sk,
         );
         flow.start_xmit();
-        sk_rcv.set_nonblocking(true).expect("set receiver to nonblocking");
+        sk_rcv
+            .set_nonblocking(true)
+            .expect("set receiver to nonblocking");
         assert!(sk_rcv.peek(&mut buffer).expect("peek a dgram") == size);
     }
 }
