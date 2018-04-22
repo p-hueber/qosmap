@@ -31,10 +31,21 @@ impl Flow {
     pub fn start_xmit(&self) {
         let gap = Duration::new(0, 1_000_000_000 / self.pps);
         let started_at = Instant::now();
+        let mut sleep_until = started_at;
 
         while self.duration > Instant::now().duration_since(started_at) {
             let data = vec![0; self.payload_len];
-            sleep(gap);
+
+            // wait relative to sleep_until (as opposed to now()) to
+            // compensate for jitter.
+            sleep_until += gap;
+
+            // capture 'now' and check for a negative duration to avoid panic
+            let now = Instant::now();
+            if now < sleep_until {
+                sleep(sleep_until.duration_since(now));
+            }
+
             self.sk.send(&data);
         }
     }
