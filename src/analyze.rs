@@ -79,12 +79,18 @@ pub mod sequence {
         }
     }
 
-    pub struct Sequencer<T> {
+    pub struct Sequencer<T>
+    where
+        T: ?Sized,
+    {
         next_seq: u32,
         mark_data: fn(&mut T, u32),
     }
 
-    impl<T> Sequencer<T> {
+    impl<T> Sequencer<T>
+    where
+        T: ?Sized,
+    {
         pub fn new(mark_data: fn(&mut T, u32)) -> Sequencer<T> {
             return Sequencer {
                 next_seq: std::u32::MAX,
