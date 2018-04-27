@@ -1,7 +1,10 @@
 pub mod sequence {
     use std;
     use std::num::Wrapping;
-    pub struct ReSequencer<T> {
+    pub struct ReSequencer<T>
+    where
+        T: ?Sized,
+    {
         last_seq: Option<u32>,
         pub missing: Vec<(u32, u32)>,
         pub dups: u32,
@@ -9,7 +12,10 @@ pub mod sequence {
         read_seq: fn(&T) -> u32,
     }
 
-    impl<T> ReSequencer<T> {
+    impl<T> ReSequencer<T>
+    where
+        T: ?Sized,
+    {
         pub fn new(read_seq: fn(&T) -> u32) -> ReSequencer<T> {
             ReSequencer {
                 last_seq: Option::None,
