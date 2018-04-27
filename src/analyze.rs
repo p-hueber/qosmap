@@ -5,7 +5,7 @@ pub mod sequence {
     where
         T: ?Sized,
     {
-        last_seq: Option<u32>,
+        pub last_seq: Option<u32>,
         pub missing: Vec<(u32, u32)>,
         pub dups: u32,
         // TODO return Result()
@@ -89,7 +89,7 @@ pub mod sequence {
     where
         T: ?Sized,
     {
-        next_seq: u32,
+        pub next_seq: u32,
         mark_data: fn(&mut T, u32),
     }
 
