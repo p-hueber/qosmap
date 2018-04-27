@@ -3,24 +3,33 @@ use std::time::{Duration, Instant};
 use std::net::UdpSocket;
 use std::thread::sleep;
 
-pub struct Flow {
+pub struct Flow<F>
+where
+    F: FnMut(&mut [u8]),
+{
     pps: u32,
     payload_len: usize,
     duration: Duration,
+    fill_packet: F,
     sk: UdpSocket,
 }
 
-impl Flow {
+impl<F> Flow<F>
+where
+    F: FnMut(&mut [u8]),
+{
     pub fn from_socket(
         pps: u32,
         payload_len: usize,
         duration: Duration,
+        fill_packet: F,
         sk: UdpSocket,
-    ) -> Flow {
+    ) -> Flow<F> {
         Flow {
             pps,
             payload_len,
             duration,
+            fill_packet,
             sk,
         }
     }
@@ -28,18 +37,19 @@ impl Flow {
         self.sk
     }
 
-    pub fn start_xmit(&self) {
+    pub fn start_xmit(&mut self) {
         let gap = Duration::new(0, 1_000_000_000 / self.pps);
         let started_at = Instant::now();
         let mut sleep_until = started_at;
 
         while self.duration > Instant::now().duration_since(started_at) {
-            let data = vec![0; self.payload_len];
+            let mut data = vec![0; self.payload_len];
 
             // wait relative to sleep_until (as opposed to now()) to
             // compensate for jitter.
             sleep_until += gap;
 
+            (self.fill_packet)(&mut data[..]);
             // capture 'now' and check for a negative duration to avoid panic
             let now = Instant::now();
             if now < sleep_until {
