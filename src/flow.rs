@@ -1,4 +1,3 @@
-use std;
 use std::time::{Duration, Instant};
 use std::net::UdpSocket;
 use std::thread::sleep;
@@ -33,6 +32,7 @@ where
             sk,
         }
     }
+
     pub fn to_socket(self) -> UdpSocket {
         self.sk
     }
@@ -67,24 +67,23 @@ mod tests {
 
     #[test]
     fn flow_instance() {
-        let mut sk = UdpSocket::bind("127.0.0.1:0").expect("bind socket");
+        let sk = UdpSocket::bind("127.0.0.1:0").expect("bind socket");
         let _flow =
             Flow::from_socket(125, 100, Duration::from_secs(10), |_| {}, sk);
     }
 
     #[test]
     fn flow_reclaim_socket() {
-        let mut sk = UdpSocket::bind("127.0.0.1:0").expect("bind socket");
+        let sk = UdpSocket::bind("127.0.0.1:0").expect("bind socket");
         let flow =
             Flow::from_socket(125, 100, Duration::from_secs(10), |_| {}, sk);
-        sk = flow.to_socket();
+        flow.to_socket();
     }
 
     #[test]
     fn flow_xmit() {
-        let mut sk = UdpSocket::bind("127.0.0.1:48002").expect("bind socket");
-        let mut sk_rcv =
-            UdpSocket::bind("127.0.0.1:48102").expect("bind socket");
+        let sk = UdpSocket::bind("127.0.0.1:48002").expect("bind socket");
+        let sk_rcv = UdpSocket::bind("127.0.0.1:48102").expect("bind socket");
         let size = 100;
         let mut buffer = [0; 2000];
         sk.connect("127.0.0.1:48102");
