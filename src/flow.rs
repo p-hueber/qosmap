@@ -4,7 +4,7 @@ use std::thread::sleep;
 
 pub struct Flow<F>
 where
-    F: FnMut(&mut [u8]),
+    F: FnMut(Box<[u8]>) -> Result<Box<[u8]>, &'static str>,
 {
     pps: u32,
     payload_len: usize,
@@ -15,7 +15,7 @@ where
 
 impl<F> Flow<F>
 where
-    F: FnMut(&mut [u8]),
+    F: FnMut(Box<[u8]>) -> Result<Box<[u8]>, &'static str>,
 {
     pub fn from_socket(
         pps: u32,
@@ -43,13 +43,13 @@ where
         let mut sleep_until = started_at;
 
         while self.duration > Instant::now().duration_since(started_at) {
-            let mut data = vec![0; self.payload_len];
+            let mut data = vec![0; self.payload_len].into_boxed_slice();
 
             // wait relative to sleep_until (as opposed to now()) to
             // compensate for jitter.
             sleep_until += gap;
 
-            (self.fill_packet)(&mut data[..]);
+            data = (self.fill_packet)(data).expect("attach payload");
             // capture 'now' and check for a negative duration to avoid panic
             let now = Instant::now();
             if now < sleep_until {
@@ -68,15 +68,25 @@ mod tests {
     #[test]
     fn flow_instance() {
         let sk = UdpSocket::bind("127.0.0.1:0").expect("bind socket");
-        let _flow =
-            Flow::from_socket(125, 100, Duration::from_secs(10), |_| {}, sk);
+        let _flow = Flow::from_socket(
+            125,
+            100,
+            Duration::from_secs(10),
+            |x| Ok(x),
+            sk,
+        );
     }
 
     #[test]
     fn flow_reclaim_socket() {
         let sk = UdpSocket::bind("127.0.0.1:0").expect("bind socket");
-        let flow =
-            Flow::from_socket(125, 100, Duration::from_secs(10), |_| {}, sk);
+        let flow = Flow::from_socket(
+            125,
+            100,
+            Duration::from_secs(10),
+            |x| Ok(x),
+            sk,
+        );
         flow.to_socket();
     }
 
@@ -91,7 +101,7 @@ mod tests {
             125,
             size,
             Duration::from_millis(1),
-            |_| {},
+            |x| Ok(x),
             sk,
         );
         flow.start_xmit();

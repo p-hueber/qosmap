@@ -65,16 +65,14 @@ mod tests {
         let pps = 1000;
         let secs = 1;
 
-        // capture new sequencer in fill_packet closure
-        let fill_packet = move |mut payload: &mut [u8]| {
-            seq.mark(&mut payload);
-        };
-
         let mut flow = Flow::from_socket(
             pps,
             10,
             Duration::from_secs(secs),
-            fill_packet,
+            move |mut payload: Box<[u8]>| {
+                seq.mark(&mut payload);
+                Ok(payload)
+            },
             sk_snd,
         );
 
