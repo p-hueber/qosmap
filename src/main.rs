@@ -6,16 +6,17 @@ use analyze::sequence::{ReSequencer, Sequencer};
 fn main() {
     {
         let mut s: u32 = 0;
-        let mut seq = Sequencer::new(|d: &mut u32, v| {
-            *d = v;
+        let mut seq = Sequencer::new(|mut d: u32, v| {
+            d = v;
+            d
         });
         let mut reseq = ReSequencer::new(|d: &u32| *d);
-        seq.mark(&mut s);
+        seq.mark(s);
         reseq.track(&s);
-        seq.mark(&mut s);
-        seq.mark(&mut s);
+        seq.mark(s);
+        seq.mark(s);
         reseq.track(&s);
-        seq.mark(&mut s);
+        seq.mark(s);
         reseq.track(&s);
         println!("{:?}\n", reseq.missing);
     }
@@ -46,11 +47,12 @@ mod tests {
 
         (sender, receiver)
     }
-    fn store_seq(buf: &mut [u8], seq: u32) {
+    fn store_seq(mut buf: Box<[u8]>, seq: u32) -> Box<[u8]> {
         buf[0] = ((seq >> 24) & 0xff) as u8;
         buf[1] = ((seq >> 16) & 0xff) as u8;
         buf[2] = ((seq >> 8) & 0xff) as u8;
         buf[3] = ((seq >> 0) & 0xff) as u8;
+        buf
     }
 
     #[test]
@@ -70,7 +72,7 @@ mod tests {
             10,
             Duration::from_secs(secs),
             move |mut payload: Box<[u8]>| {
-                seq.mark(&mut payload);
+                payload = seq.mark(payload);
                 Ok(payload)
             },
             sk_snd,

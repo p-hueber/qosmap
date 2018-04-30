@@ -85,27 +85,23 @@ pub mod sequence {
         }
     }
 
-    pub struct Sequencer<T>
-    where
-        T: ?Sized,
-    {
+    pub struct Sequencer<T> {
         pub next_seq: u32,
-        mark_data: fn(&mut T, u32),
+        mark_data: fn(T, u32) -> T,
     }
 
     impl<T> Sequencer<T>
-    where
-        T: ?Sized,
     {
-        pub fn new(mark_data: fn(&mut T, u32)) -> Sequencer<T> {
+        pub fn new(mark_data: fn(T, u32) -> T) -> Sequencer<T> {
             return Sequencer {
                 next_seq: std::u32::MAX,
                 mark_data,
             };
         }
-        pub fn mark(&mut self, data: &mut T) {
-            (self.mark_data)(data, self.next_seq);
+        pub fn mark(&mut self, data: T) -> T {
+            let data_ret = (self.mark_data)(data, self.next_seq);
             self.next_seq = self.step(self.next_seq);
+            data_ret
         }
         fn step(&self, s: u32) -> u32 {
             if s == std::u32::MAX {
@@ -121,9 +117,11 @@ pub mod sequence {
 mod tests {
     use super::sequence::*;
     use std;
+    use std::boxed::Box;
 
-    fn mark(d: &mut u32, v: u32) {
+    fn mark(mut d: Box<u32>, v: u32) -> Box<u32> {
         *d = v;
+        d
     }
     fn read_seq(d: &u32) -> u32 {
         *d
@@ -134,12 +132,12 @@ mod tests {
     }
     #[test]
     fn seq_wrap() {
+        let mut s: Box<u32> = Box::new(0);
         let mut seq = Sequencer::new(mark);
-        let mut s: u32 = 0;
-        seq.mark(&mut s);
-        assert_eq!(s, std::u32::MAX);
-        seq.mark(&mut s);
-        assert_eq!(s, 0);
+        s = seq.mark(s);
+        assert_eq!(*s, std::u32::MAX);
+        s = seq.mark(s);
+        assert_eq!(*s, 0);
     }
 
     #[test]
@@ -204,39 +202,39 @@ mod tests {
 
     #[test]
     fn seq_reseq() {
+        let mut s: Box<u32> = Box::new(0);
         let mut seq = Sequencer::new(mark);
         let mut reseq = ReSequencer::new(read_seq);
-        let mut s: u32 = 0;
 
-        seq.mark(&mut s);
+        s = seq.mark(s);
         reseq.track(&s);
         assert_eq!(reseq.missing, []);
         assert_eq!(reseq.dups, 0);
 
-        seq.mark(&mut s);
-        seq.mark(&mut s);
+        s = seq.mark(s);
+        s = seq.mark(s);
         reseq.track(&s);
         assert_eq!(reseq.missing, [(0, 0)]);
         assert_eq!(reseq.dups, 0);
-        assert_eq!(s, 1);
+        assert_eq!(*s, 1);
 
-        seq.mark(&mut s);
+        s = seq.mark(s);
         reseq.track(&s);
         reseq.track(&s);
         assert_eq!(reseq.missing, [(0, 0)]);
         assert_eq!(reseq.dups, 1);
-        assert_eq!(s, 2);
+        assert_eq!(*s, 2);
 
-        seq.mark(&mut s);
-        seq.mark(&mut s);
-        seq.mark(&mut s);
-        seq.mark(&mut s);
-        seq.mark(&mut s);
-        seq.mark(&mut s);
+        s = seq.mark(s);
+        s = seq.mark(s);
+        s = seq.mark(s);
+        s = seq.mark(s);
+        s = seq.mark(s);
+        s = seq.mark(s);
         reseq.track(&s);
         assert_eq!(reseq.missing, [(0, 0), (3, 7)]);
         assert_eq!(reseq.dups, 1);
-        assert_eq!(s, 8);
+        assert_eq!(*s, 8);
 
         reseq.track(&4u32);
         assert_eq!(reseq.missing, [(0, 0), (3, 3), (5, 7)]);
