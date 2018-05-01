@@ -90,8 +90,7 @@ pub mod sequence {
         mark_data: fn(T, u32) -> T,
     }
 
-    impl<T> Sequencer<T>
-    {
+    impl<T> Sequencer<T> {
         pub fn new(mark_data: fn(T, u32) -> T) -> Sequencer<T> {
             return Sequencer {
                 next_seq: std::u32::MAX,

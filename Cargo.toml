@@ -2,3 +2,6 @@
 name = "qosmap"
 version = "0.1.0"
 authors = ["Paul Hüber <phueber@kernsp.in>"]
+
+[dependencies]
+structopt = "0.2"

@@ -1,25 +1,23 @@
+#[macro_use]
+extern crate structopt;
+
 mod analyze;
 mod flow;
 
 use analyze::sequence::{ReSequencer, Sequencer};
+use structopt::StructOpt;
+
+/// qosmap options
+#[derive(StructOpt, Debug)]
+struct Opt {
+    /// server mode
+    #[structopt(short = "s", long = "server")]
+    server: bool,
+}
 
 fn main() {
-    {
-        let mut s: u32 = 0;
-        let mut seq = Sequencer::new(|mut d: u32, v| {
-            d = v;
-            d
-        });
-        let mut reseq = ReSequencer::new(|d: &u32| *d);
-        seq.mark(s);
-        reseq.track(&s);
-        seq.mark(s);
-        seq.mark(s);
-        reseq.track(&s);
-        seq.mark(s);
-        reseq.track(&s);
-        println!("{:?}\n", reseq.missing);
-    }
+    let opt = Opt::from_args();
+    println!("{:?}", opt);
 }
 
 #[cfg(test)]
