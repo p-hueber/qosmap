@@ -6,6 +6,10 @@ mod flow;
 
 use analyze::sequence::{ReSequencer, Sequencer};
 use structopt::StructOpt;
+use std::net::IpAddr;
+use std::net::UdpSocket;
+use std::time::Duration;
+use flow::Flow;
 
 /// qosmap options
 #[derive(StructOpt, Debug)]
@@ -13,11 +17,93 @@ struct Opt {
     /// server mode
     #[structopt(short = "s", long = "server")]
     server: bool,
+    /// server address
+    #[structopt(short = "i", long = "ip", default_value = "0.0.0.0")]
+    ip: IpAddr,
+    /// server port
+    #[structopt(short = "p", long = "port", default_value = "4801")]
+    port: u16,
+    /// packet rate in packets per second
+    #[structopt(short = "r", long = "rate", default_value = "1000")]
+    rate: u32,
+    /// duration of the test in seconds
+    #[structopt(short = "d", long = "duration", default_value = "1")]
+    duration: u64,
+}
+
+fn store_seq(mut buf: Box<[u8]>, seq: u32) -> Box<[u8]> {
+    buf[0] = ((seq >> 24) & 0xff) as u8;
+    buf[1] = ((seq >> 16) & 0xff) as u8;
+    buf[2] = ((seq >> 8) & 0xff) as u8;
+    buf[3] = ((seq >> 0) & 0xff) as u8;
+    buf
 }
 
 fn main() {
     let opt = Opt::from_args();
     println!("{:?}", opt);
+
+    if opt.server {
+        let sk = UdpSocket::bind((opt.ip, opt.port)).expect("bind server");
+
+        let mut reseq = ReSequencer::new(|buf: &[u8]| {
+            (buf[3] as u32) | (buf[2] as u32) << 8 | (buf[1] as u32) << 16
+                | (buf[0] as u32) << 24
+        });
+
+        let mut buffer = [0; 2000];
+
+        println!("Wait for incoming flow...");
+        sk.peek(&mut buffer);
+        sk.set_read_timeout(Some(Duration::from_millis(10)));
+
+        println!("Receive flow...");
+        loop {
+            let bytes;
+            match sk.recv(&mut buffer) {
+                Err(_) => {
+                    break;
+                }
+                Ok(b) => {
+                    bytes = b;
+                }
+            }
+            reseq.track(&buffer[..bytes]);
+        }
+        println!("{:?}", reseq.missing);
+        println!(
+            "{:?}",
+            reseq
+                .missing
+                .iter()
+                .map(|&(a, b)| b - a)
+                .fold(0, |acc, len| acc + len)
+        );
+        println!("{:?}", reseq.dups);
+    } else {
+        // client
+
+        let sender = UdpSocket::bind("0.0.0.0:0").expect("bind sender");
+        sender
+            .connect((opt.ip, opt.port))
+            .expect("connect to server");
+
+        let mut seq = Sequencer::new(store_seq);
+        let pps = opt.rate;
+        let secs = opt.duration;
+
+        let mut flow = Flow::from_socket(
+            pps,
+            10,
+            Duration::from_secs(secs),
+            move |mut payload: Box<[u8]>| {
+                payload = seq.mark(payload);
+                Ok(payload)
+            },
+            sender,
+        );
+        flow.start_xmit();
+    }
 }
 
 #[cfg(test)]
@@ -44,13 +130,6 @@ mod tests {
             .expect("connect to receiver");
 
         (sender, receiver)
-    }
-    fn store_seq(mut buf: Box<[u8]>, seq: u32) -> Box<[u8]> {
-        buf[0] = ((seq >> 24) & 0xff) as u8;
-        buf[1] = ((seq >> 16) & 0xff) as u8;
-        buf[2] = ((seq >> 8) & 0xff) as u8;
-        buf[3] = ((seq >> 0) & 0xff) as u8;
-        buf
     }
 
     #[test]
