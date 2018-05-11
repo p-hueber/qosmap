@@ -168,7 +168,7 @@ mod tests {
         let receiver = thread::spawn(move || {
             let mut buffer = [0; 2000];
             let sk = sk_rcv;
-            sk.set_read_timeout(Some(Duration::from_millis(10)));
+            sk.set_read_timeout(Some(Duration::from_millis(10))).expect("set timeout");
 
             loop {
                 let bytes;
