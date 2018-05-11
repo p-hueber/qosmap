@@ -25,7 +25,7 @@ struct Opt {
     #[structopt(short = "s", long = "server")]
     server: bool,
     /// server address
-    #[structopt()]
+    #[structopt(required_unless = "server")]
     ip: Option<IpAddr>,
     /// server port
     #[structopt(short = "p", long = "port", default_value = "4801")]
@@ -88,14 +88,6 @@ fn main() {
 fn qosmap(args: Vec<String>) {
     let opt = Opt::from_iter(args);
     println!("{:?}", opt);
-
-    if !opt.server && opt.ip == None {
-        Opt::clap()
-            .print_help()
-            .expect("show how to to it");
-        println!("Host needs to be specified in client mode");
-        return;
-    }
 
     let host = match opt.ip {
         Some(ip) => ip,
@@ -282,7 +274,7 @@ mod tests {
     }
     #[test]
     fn run_main() {
-        ::main();
+        ::qosmap(vec![String::from("qosmap"), String::from("-h")]);
     }
     #[test]
     fn run_main_server_client() {
