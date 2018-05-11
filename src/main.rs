@@ -82,10 +82,10 @@ enum ControlMessage {
 }
 
 fn main() {
-    qosmap(env::args().collect::<Vec<_>>());
+    mainymain(env::args().collect::<Vec<_>>());
 }
 
-fn qosmap(args: Vec<String>) {
+fn mainymain(args: Vec<String>) {
     let opt = Opt::from_iter(args);
     println!("{:?}", opt);
 
@@ -274,7 +274,7 @@ mod tests {
     }
     #[test]
     fn run_main() {
-        ::qosmap(vec![String::from("qosmap"), String::from("-h")]);
+        ::mainymain(vec![String::from("qosmap"), String::from("-h")]);
     }
     #[test]
     fn run_main_server_client() {
@@ -283,7 +283,7 @@ mod tests {
         });
         thread::sleep(Duration::from_millis(200));
         let client_opts = vec!["qosmap", "127.0.0.1", "-p", "4801"];
-        ::qosmap(
+        ::mainymain(
             client_opts
                 .iter()
                 .map(|x| String::from(*x))
