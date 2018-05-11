@@ -1,6 +1,14 @@
 pub mod sequence {
     use std;
     use std::num::Wrapping;
+
+    #[derive(Serialize, Deserialize, Debug)]
+    pub struct SequenceReport {
+        pub last_seq: u32,
+        pub missing: Vec<(u32, u32)>,
+        pub dups: u32,
+    }
+
     pub struct ReSequencer<T>
     where
         T: ?Sized,
