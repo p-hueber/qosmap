@@ -14,7 +14,7 @@ use analyze::sequence::{ReSequencer, SequenceReport, Sequencer};
 use flow::Flow;
 use std::env;
 use std::io::Write;
-use std::net::{IpAddr, TcpListener, TcpStream, UdpSocket};
+use std::net::{TcpListener, TcpStream, UdpSocket};
 use std::time::Duration;
 use structopt::StructOpt;
 
@@ -26,7 +26,7 @@ struct Opt {
     server: bool,
     /// server address
     #[structopt(required_unless = "server")]
-    ip: Option<IpAddr>,
+    host: Option<String>,
     /// server port
     #[structopt(short = "p", long = "port", default_value = "4801")]
     port: u16,
@@ -89,9 +89,9 @@ fn qosmap(args: Vec<String>) {
     let opt = Opt::from_iter(args);
     println!("{:?}", opt);
 
-    let host = match opt.ip {
-        Some(ip) => ip,
-        _ => std::net::IpAddr::from(std::net::Ipv4Addr::from(0)),
+    let host = match opt.host {
+        Some(ref ip) => &ip[..],
+        _ => "0.0.0.0",
     };
 
     if opt.server {
@@ -151,7 +151,7 @@ fn qosmap(args: Vec<String>) {
     } else {
         // client
 
-        let mut ctrl_sk = TcpStream::connect((opt.ip.unwrap(), opt.port))
+        let mut ctrl_sk = TcpStream::connect((host, opt.port))
             .expect("open control connection");
         ctrl_sk.send_msg(ControlMessage::RequestFlow);
         let udp_port = match ctrl_sk.recv_msg() {
@@ -160,7 +160,7 @@ fn qosmap(args: Vec<String>) {
         };
         let sender = UdpSocket::bind("0.0.0.0:0").expect("bind sender");
         sender
-            .connect((opt.ip.unwrap(), udp_port))
+            .connect((host, udp_port))
             .expect("connect to server");
 
         let mut seq = Sequencer::new(store_seq);
