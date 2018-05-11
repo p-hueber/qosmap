@@ -46,53 +46,129 @@ fn store_seq(mut buf: Box<[u8]>, seq: u32) -> Box<[u8]> {
     buf
 }
 
+trait ControlStream {
+    fn send_msg(&mut self, ControlMessage);
+    fn recv_msg(&mut self) -> Option<ControlMessage>;
+}
+
+impl ControlStream for TcpStream {
+    fn send_msg(&mut self, msg: ControlMessage) {
+        self.write(&serde_json::to_vec(&msg).unwrap())
+            .expect("send message");
+        self.write(&[0]).expect("terminate message");
+        self.flush().expect("complete datagram");
+    }
+
+    fn recv_msg(&mut self) -> Option<ControlMessage> {
+        use std::io::{BufRead, BufReader};
+        let mut buf_stream = BufReader::new(self);
+        let mut message_data: Vec<u8> = Vec::new();
+        buf_stream
+            .read_until(0, &mut message_data)
+            .expect("receive message");
+        message_data.pop();
+        let message: ControlMessage = serde_json::from_slice(&message_data)
+            .expect("deserialize control message");
+
+        Some(message)
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+enum ControlMessage {
+    RequestFlow,
+    ExpectFlow(u16),
+    Report(SequenceReport),
+}
+
 fn main() {
-    let opt = Opt::from_args();
+    qosmap(env::args().collect::<Vec<_>>());
+}
+
+fn qosmap(args: Vec<String>) {
+    let opt = Opt::from_iter(args);
     println!("{:?}", opt);
 
+    if !opt.server && opt.ip == None {
+        Opt::clap()
+            .print_help()
+            .expect("show how to to it");
+        println!("Host needs to be specified in client mode");
+        return;
+    }
+
+    let host = match opt.ip {
+        Some(ip) => ip,
+        _ => std::net::IpAddr::from(std::net::Ipv4Addr::from(0)),
+    };
+
     if opt.server {
-        let sk = UdpSocket::bind((opt.ip, opt.port)).expect("bind server");
+        let tcp_listener = TcpListener::bind((host, opt.port))
+            .expect("bind to control port");
+        for stream in tcp_listener.incoming() {
+            let mut ctrl_sk = stream.unwrap();
+            let message = ctrl_sk.recv_msg();
+            println!("received message: {:?}", message);
 
-        let mut reseq = ReSequencer::new(|buf: &[u8]| {
-            (buf[3] as u32) | (buf[2] as u32) << 8 | (buf[1] as u32) << 16
-                | (buf[0] as u32) << 24
-        });
+            let sk = UdpSocket::bind((host, 0)).expect("bind server");
 
-        let mut buffer = [0; 2000];
+            let port = sk.local_addr()
+                .expect("get port from receiving socket")
+                .port();
 
-        println!("Wait for incoming flow...");
-        sk.peek(&mut buffer);
-        sk.set_read_timeout(Some(Duration::from_millis(10)));
-
-        println!("Receive flow...");
-        loop {
-            let bytes;
-            match sk.recv(&mut buffer) {
-                Err(_) => {
-                    break;
+            match message {
+                Some(ControlMessage::RequestFlow) => {
+                    ctrl_sk.send_msg(ControlMessage::ExpectFlow(port));
                 }
-                Ok(b) => {
-                    bytes = b;
+                _ => (),
+            };
+
+            let mut reseq = ReSequencer::new(|buf: &[u8]| {
+                (buf[3] as u32) | (buf[2] as u32) << 8 | (buf[1] as u32) << 16
+                    | (buf[0] as u32) << 24
+            });
+
+            let mut buffer = [0; 2000];
+
+            println!("Wait for incoming flow...");
+            sk.peek(&mut buffer)
+                .expect("look for available data");
+            sk.set_read_timeout(Some(Duration::from_millis(10)))
+                .expect("set timeout to detect finished flow");
+
+            println!("Receive flow...");
+            loop {
+                let bytes;
+                match sk.recv(&mut buffer) {
+                    Err(_) => {
+                        break;
+                    }
+                    Ok(b) => {
+                        bytes = b;
+                    }
                 }
+                reseq.track(&buffer[..bytes]);
             }
-            reseq.track(&buffer[..bytes]);
+            let report = SequenceReport {
+                last_seq: reseq.last_seq.unwrap_or(0),
+                missing: reseq.missing,
+                dups: reseq.dups,
+            };
+            ctrl_sk.send_msg(ControlMessage::Report(report));
         }
-        println!("{:?}", reseq.missing);
-        println!(
-            "{:?}",
-            reseq
-                .missing
-                .iter()
-                .map(|&(a, b)| b - a)
-                .fold(0, |acc, len| acc + len)
-        );
-        println!("{:?}", reseq.dups);
     } else {
         // client
 
+        let mut ctrl_sk = TcpStream::connect((opt.ip.unwrap(), opt.port))
+            .expect("open control connection");
+        ctrl_sk.send_msg(ControlMessage::RequestFlow);
+        let udp_port = match ctrl_sk.recv_msg() {
+            Some(ControlMessage::ExpectFlow(udp_port)) => udp_port,
+            _ => panic!("Cannot initiate new flow"),
+        };
         let sender = UdpSocket::bind("0.0.0.0:0").expect("bind sender");
         sender
-            .connect((opt.ip, opt.port))
+            .connect((opt.ip.unwrap(), udp_port))
             .expect("connect to server");
 
         let mut seq = Sequencer::new(store_seq);
@@ -110,6 +186,10 @@ fn main() {
             sender,
         );
         flow.start_xmit();
+        match ctrl_sk.recv_msg() {
+            Some(ControlMessage::Report(report)) => println!("{:?}", report),
+            _ => (),
+        }
     }
 }
 
@@ -143,7 +223,7 @@ mod tests {
     fn combine_sequence_with_flow() {
         let (sk_snd, sk_rcv) = fresh_pair_of_socks();
 
-        let mut seq = Sequencer::new(store_seq);
+        let mut seq = Sequencer::new(::store_seq);
         let mut reseq = ReSequencer::new(|buf: &[u8]| {
             (buf[3] as u32) | (buf[2] as u32) << 8 | (buf[1] as u32) << 16
                 | (buf[0] as u32) << 24
@@ -198,6 +278,24 @@ mod tests {
         assert_eq!(
             (Wrapping(reseq.last_seq.unwrap()) + Wrapping(2)).0,
             pps / (secs as u32)
+        );
+    }
+    #[test]
+    fn run_main() {
+        ::main();
+    }
+    #[test]
+    fn run_main_server_client() {
+        let _server = thread::spawn(|| {
+            ::mainymain(vec![String::from("qosmap"), String::from("-s")]);
+        });
+        thread::sleep(Duration::from_millis(200));
+        let client_opts = vec!["qosmap", "127.0.0.1", "-p", "4801"];
+        ::qosmap(
+            client_opts
+                .iter()
+                .map(|x| String::from(*x))
+                .collect(),
         );
     }
 }
