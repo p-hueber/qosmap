@@ -1,6 +1,6 @@
-use std::time::{Duration, Instant};
 use std::net::UdpSocket;
 use std::thread::sleep;
+use std::time::{Duration, Instant};
 
 pub struct Flow<F>
 where
@@ -96,7 +96,8 @@ mod tests {
         let sk_rcv = UdpSocket::bind("127.0.0.1:48102").expect("bind socket");
         let size = 100;
         let mut buffer = [0; 2000];
-        sk.connect("127.0.0.1:48102").expect("connect to host");
+        sk.connect("127.0.0.1:48102")
+            .expect("connect to host");
         let mut flow = Flow::from_socket(
             125,
             size,

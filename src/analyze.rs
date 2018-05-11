@@ -68,7 +68,8 @@ pub mod sequence {
                     } else {
                         let tmp = v.1;
                         self.missing[idx].1 = (seq - one).0;
-                        self.missing.insert(idx + 1, ((seq + one).0, tmp));
+                        self.missing
+                            .insert(idx + 1, ((seq + one).0, tmp));
                     }
                 }
                 None => {
@@ -80,7 +81,7 @@ pub mod sequence {
                         } else {
                             // split intervals for the wrapping case to
                             // simplify lookup
-                            // 
+                            //
                             self.missing.push((expected.0, std::u32::MAX));
                             if seq.0 != 0 {
                                 self.missing.push((0, (seq - one).0));

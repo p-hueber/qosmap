@@ -10,12 +10,13 @@ extern crate structopt;
 mod analyze;
 mod flow;
 
-use analyze::sequence::{ReSequencer, Sequencer};
-use structopt::StructOpt;
-use std::net::IpAddr;
-use std::net::UdpSocket;
-use std::time::Duration;
+use analyze::sequence::{ReSequencer, SequenceReport, Sequencer};
 use flow::Flow;
+use std::env;
+use std::io::Write;
+use std::net::{IpAddr, TcpListener, TcpStream, UdpSocket};
+use std::time::Duration;
+use structopt::StructOpt;
 
 /// qosmap options
 #[derive(StructOpt, Debug)]
@@ -115,11 +116,11 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use analyze::sequence::{ReSequencer, Sequencer};
-    use std::num::Wrapping;
     use flow::Flow;
     use std::net::UdpSocket;
-    use std::time::Duration;
+    use std::num::Wrapping;
     use std::thread;
+    use std::time::Duration;
 
     fn fresh_pair_of_socks() -> (UdpSocket, UdpSocket) {
         let port: u16;
@@ -168,7 +169,8 @@ mod tests {
         let receiver = thread::spawn(move || {
             let mut buffer = [0; 2000];
             let sk = sk_rcv;
-            sk.set_read_timeout(Some(Duration::from_millis(10))).expect("set timeout");
+            sk.set_read_timeout(Some(Duration::from_millis(10)))
+                .expect("set timeout");
 
             loop {
                 let bytes;
