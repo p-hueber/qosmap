@@ -24,8 +24,8 @@ struct Opt {
     #[structopt(short = "s", long = "server")]
     server: bool,
     /// server address
-    #[structopt(short = "i", long = "ip", default_value = "0.0.0.0")]
-    ip: IpAddr,
+    #[structopt()]
+    ip: Option<IpAddr>,
     /// server port
     #[structopt(short = "p", long = "port", default_value = "4801")]
     port: u16,
