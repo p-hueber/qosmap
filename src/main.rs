@@ -145,6 +145,7 @@ fn mainymain(args: Vec<String>) {
                 last_seq: reseq.last_seq.unwrap_or(0),
                 missing: reseq.missing,
                 dups: reseq.dups,
+                cnt: reseq.cnt,
             };
             ctrl_sk.send_msg(ControlMessage::Report(report));
         }

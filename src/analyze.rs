@@ -7,6 +7,7 @@ pub mod sequence {
         pub last_seq: u32,
         pub missing: Vec<(u32, u32)>,
         pub dups: u32,
+        pub cnt: u32,
     }
 
     pub struct ReSequencer<T>
@@ -16,6 +17,7 @@ pub mod sequence {
         pub last_seq: Option<u32>,
         pub missing: Vec<(u32, u32)>,
         pub dups: u32,
+        pub cnt: u32,
         // TODO return Result()
         read_seq: fn(&T) -> u32,
     }
@@ -30,12 +32,15 @@ pub mod sequence {
                 missing: vec![],
                 dups: 0,
                 read_seq,
+                cnt: 0,
             }
         }
         pub fn track(&mut self, data: &T) {
             let one = Wrapping(1u32);
             let seq = Wrapping((self.read_seq)(data));
             let expected: Wrapping<u32>;
+
+            self.cnt += 1;
 
             if self.last_seq == Option::None {
                 self.last_seq = Some(seq.0);
