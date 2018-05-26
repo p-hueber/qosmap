@@ -14,6 +14,8 @@ use analyze::sequence::{ReSequencer, SequenceReport, Sequencer};
 use flow::Flow;
 use std::env;
 use std::io::Write;
+use std::net::SocketAddr;
+use std::net::ToSocketAddrs;
 use std::net::{TcpListener, TcpStream, UdpSocket};
 use std::time::Duration;
 use structopt::StructOpt;
@@ -151,26 +153,55 @@ fn mainymain(args: Vec<String>) {
         }
     } else {
         // client
+        let mut sock_addrs = (host, opt.port)
+            .to_socket_addrs()
+            .expect("resolve host");
+        let sock_addr = sock_addrs.nth(0).unwrap();
+        let len: (u32, u32) = (800, 1200);
+        let pps = (
+            find_max_pps(sock_addr, len.0 as usize).expect("detect max rate"),
+            find_max_pps(sock_addr, len.1 as usize).expect("detect max rate"),
+        );
 
-        let mut ctrl_sk = TcpStream::connect((host, opt.port))
-            .expect("open control connection");
+        println!("pps {:?}", pps);
+        let net_rate: (i64, i64) =
+            ((pps.0 * len.0).into(), (pps.1 * len.1).into());
+        let overhead = (net_rate.1 - net_rate.0) / (pps.0 - pps.1) as i64;
+        println!("overhead {}", overhead);
+        let gross_rate = (
+            pps.0 as i64 * (len.0 as i64 + overhead),
+            pps.1 as i64 * (len.1 as i64 + overhead),
+        );
+        println!(
+            "gross_rate {:?}",
+            gross_rate.0.min(gross_rate.1)
+        );
+    }
+}
+
+fn find_max_pps(sock_addr: SocketAddr, pktlen: usize) -> Result<u32, ()> {
+    let mut pps = 1000;
+    let secs = 3;
+    let mut highest_pps: Option<u32> = None;
+    let mut no_update_iters = 0;
+
+    loop {
+        let mut ctrl_sk =
+            TcpStream::connect(sock_addr).expect("open control connection");
         ctrl_sk.send_msg(ControlMessage::RequestFlow);
         let udp_port = match ctrl_sk.recv_msg() {
             Some(ControlMessage::ExpectFlow(udp_port)) => udp_port,
             _ => panic!("Cannot initiate new flow"),
         };
-        let sender = UdpSocket::bind("0.0.0.0:0").expect("bind sender");
+        let mut sender = UdpSocket::bind("0.0.0.0:0").expect("bind sender");
         sender
-            .connect((host, udp_port))
+            .connect((sock_addr.ip(), udp_port))
             .expect("connect to server");
 
         let mut seq = Sequencer::new(store_seq);
-        let pps = opt.rate;
-        let secs = opt.duration;
-
         let mut flow = Flow::from_socket(
             pps,
-            10,
+            pktlen,
             Duration::from_secs(secs),
             move |mut payload: Box<[u8]>| {
                 payload = seq.mark(payload);
@@ -178,10 +209,47 @@ fn mainymain(args: Vec<String>) {
             },
             sender,
         );
+        println!("run flow with pps {}", pps);
         flow.start_xmit();
+        sender = flow.to_socket();
+
         match ctrl_sk.recv_msg() {
-            Some(ControlMessage::Report(report)) => println!("{:?}", report),
-            _ => (),
+            Some(ControlMessage::Report(r)) => {
+                // println!("{:?}", r);
+                let next_pps;
+                let missing_sum = r.missing
+                    .iter()
+                    .map(|(a, b)| (b + 1) - a)
+                    .fold(0, |a, b| a + b);
+                println!("missing_sum={}", missing_sum);
+                let lost_pps =
+                    (missing_sum + (secs as u32) - 1) / (secs as u32);
+                let _passed_pps = pps - lost_pps;
+                let passed_pps =
+                    (r.cnt - r.dups + (secs as u32) - 1) / (secs as u32);
+                println!("pps {} expected {}", passed_pps, _passed_pps);
+                if passed_pps > highest_pps.unwrap_or_default()
+                    || lost_pps == 0
+                {
+                    highest_pps = Some(passed_pps);
+                    next_pps = passed_pps * 2;
+                } else {
+                    no_update_iters += 1;
+                    // retry slightly above the last limit
+                    next_pps = passed_pps + (lost_pps + 1) / 2;
+                }
+                if no_update_iters >= 3 {
+                    println!(
+                        "determined rate {} B/s",
+                        highest_pps.unwrap_or_default() as u64
+                            * pktlen as u64
+                    );
+                    return Ok(highest_pps.unwrap_or_default());
+                } else {
+                    pps = next_pps;
+                }
+            }
+            _ => return Err(()),
         }
     }
 }
