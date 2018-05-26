@@ -40,23 +40,44 @@ where
     pub fn start_xmit(&mut self) {
         let gap = Duration::new(0, 1_000_000_000 / self.pps);
         let started_at = Instant::now();
-        let mut sleep_until = started_at;
+
+        // wait relative to sleep_until (as opposed to now()) to
+        // compensate for jitter.
+        let mut sleep_until = started_at + gap;
+
+        // self.sk.set_nonblocking(true);
+        let mut recycled_buffers =
+            vec![vec![0; self.payload_len].into_boxed_slice(); 10];
+        let mut prepared_buffers: Vec<Box<[u8]>> = Vec::new();
 
         while self.duration > Instant::now().duration_since(started_at) {
-            let mut data = vec![0; self.payload_len].into_boxed_slice();
-
-            // wait relative to sleep_until (as opposed to now()) to
-            // compensate for jitter.
-            sleep_until += gap;
-
-            data = (self.fill_packet)(data).expect("attach payload");
-            // capture 'now' and check for a negative duration to avoid panic
-            let now = Instant::now();
-            if now < sleep_until {
-                sleep(sleep_until.duration_since(now));
+            let mut now = Instant::now();
+            while now < sleep_until || prepared_buffers.is_empty() {
+                if !recycled_buffers.is_empty() {
+                    let mut data = recycled_buffers.pop().unwrap();
+                    data = (self.fill_packet)(data).expect("attach payload");
+                    prepared_buffers.insert(0, data);
+                } else {
+                    sleep(sleep_until.duration_since(now));
+                }
+                now = Instant::now();
             }
 
-            self.sk.send(&data).expect("transmit datagram");
+            // if sleep_until + gap < now {
+            //    println!("missed a time slot by {:?}", now - sleep_until);
+            // }
+
+            while sleep_until < now {
+                if prepared_buffers.is_empty() {
+                    // println!("buffer underrun");
+                    break;
+                }
+                let data = prepared_buffers.pop().unwrap();
+                self.sk.send(&data).expect("transmit datagram");
+                recycled_buffers.insert(0, data);
+
+                sleep_until += gap;
+            }
         }
     }
 }
