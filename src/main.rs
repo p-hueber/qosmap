@@ -73,15 +73,20 @@ where
         let mut buf_stream = BufReader::new(self);
         let mut message_data: Vec<u8> = Vec::new();
 
-        buf_stream
+        let bytes = buf_stream
             .read_until(0, &mut message_data)
             .map_err(|e| e.to_string())?;
 
-        message_data.pop();
-        let message: ControlMessage = serde_json::from_slice(
-            &message_data,
-        ).map_err(|e| e.to_string())?;
-        Ok(message)
+        if bytes == 0 || message_data[bytes - 1] != 0 {
+            // short read due to EOF
+            return Err("Control connection closed by remote side".to_string());
+        } else {
+            message_data.pop();
+            let message: ControlMessage = serde_json::from_slice(
+                &message_data,
+            ).map_err(|e| e.to_string())?;
+            Ok(message)
+        }
     }
 }
 
