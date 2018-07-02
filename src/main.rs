@@ -102,7 +102,7 @@ fn mainymain(args: Vec<String>) {
 
     let host = match opt.host {
         Some(ref ip) => &ip[..],
-        _ => "0.0.0.0",
+        _ => "",
     };
 
     if opt.server {
