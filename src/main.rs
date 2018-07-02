@@ -94,6 +94,7 @@ where
 enum ControlMessage {
     RequestFlow,
     ExpectFlow(u16),
+    TerminateFlow(u16),
     Report(SequenceReport),
 }
 
@@ -193,6 +194,7 @@ fn find_max_pps(sock_addr: SocketAddr, pktlen: usize) -> Result<u32, String> {
         flow.start_xmit();
         sender = flow.to_socket();
 
+        ctrl_sk.send_msg(ControlMessage::TerminateFlow(udp_port))?;
         match ctrl_sk.recv_msg() {
             Ok(ControlMessage::Report(r)) => {
                 // println!("{:?}", r);
@@ -299,6 +301,21 @@ fn serve_client(mut ctrl_sk: TcpStream) -> Result<(), String> {
                 ctrl_sk.send_msg(ControlMessage::ExpectFlow(w.port))?;
                 workers.push(w);
             }
+            ControlMessage::TerminateFlow(port) => {
+                let pos = workers
+                    .iter()
+                    .position(|w| w.port == port)
+                    .ok_or("no flow served for that port")?;
+                let w = workers.remove(pos);
+                w.worker_in
+                    .send(ControlMessage::TerminateFlow(port))
+                    .map_err(|e| e.to_string())?;
+                w.worker_out
+                    .recv()
+                    .map_err(|e| e.to_string())
+                    .and_then(|msg| ctrl_sk.send_msg(msg))?;
+                w.worker.join().expect("wait for worker thread")?
+            }
             _ => {
                 return Err("unsupported control message received".to_string())
             }
@@ -325,6 +342,7 @@ fn spawn_flow_worker(host: std::net::IpAddr) -> Result<FlowWorker, String> {
 
     let worker = thread::spawn(move || -> Result<(), String> {
         let report = receive_flow(sk, || match worker_in_cons.try_recv() {
+            Ok(ControlMessage::TerminateFlow(_)) => true,
             Err(mpsc::TryRecvError::Disconnected) => true,
             _ => false,
         });
