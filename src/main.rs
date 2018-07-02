@@ -192,7 +192,6 @@ fn find_max_pps(sock_addr: SocketAddr, pktlen: usize) -> Result<u32, String> {
         );
         println!("run flow with pps {}", pps);
         flow.start_xmit();
-        sender = flow.to_socket();
 
         ctrl_sk.send_msg(ControlMessage::TerminateFlow(udp_port))?;
         match ctrl_sk.recv_msg() {
