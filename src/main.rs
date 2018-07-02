@@ -13,7 +13,7 @@ mod flow;
 use analyze::sequence::{ReSequencer, SequenceReport, Sequencer};
 use flow::Flow;
 use std::env;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
 use std::net::{TcpListener, TcpStream, UdpSocket};
@@ -53,7 +53,10 @@ trait ControlStream {
     fn recv_msg(&mut self) -> Option<ControlMessage>;
 }
 
-impl ControlStream for TcpStream {
+impl<T> ControlStream for T
+where
+    T: Read + Write,
+{
     fn send_msg(&mut self, msg: ControlMessage) {
         self.write(&serde_json::to_vec(&msg).unwrap())
             .expect("send message");
