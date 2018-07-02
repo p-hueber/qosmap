@@ -110,55 +110,13 @@ fn mainymain(args: Vec<String>) {
             .expect("bind to control port");
         for stream in tcp_listener.incoming() {
             let mut ctrl_sk = stream.unwrap();
-            let message = ctrl_sk.recv_msg();
-            println!("received message: {:?}", message);
-
-            let sk = UdpSocket::bind((host, 0)).expect("bind server");
-
-            let port = sk.local_addr()
-                .expect("get port from receiving socket")
-                .port();
-
-            match message {
-                Some(ControlMessage::RequestFlow) => {
-                    ctrl_sk.send_msg(ControlMessage::ExpectFlow(port));
-                }
-                _ => (),
-            };
-
-            let mut reseq = ReSequencer::new(|buf: &[u8]| {
-                (buf[3] as u32) | (buf[2] as u32) << 8 | (buf[1] as u32) << 16
-                    | (buf[0] as u32) << 24
+            thread::spawn(move || {
+                let peer: String =
+                    format!("{:?}", ctrl_sk.peer_addr().unwrap());
+                serve_client(ctrl_sk).unwrap_or_else(|e| {
+                    println!("Error for connection from {}: {}", peer, e);
+                });
             });
-
-            let mut buffer = [0; 2000];
-
-            println!("Wait for incoming flow...");
-            sk.peek(&mut buffer)
-                .expect("look for available data");
-            sk.set_read_timeout(Some(Duration::from_millis(10)))
-                .expect("set timeout to detect finished flow");
-
-            println!("Receive flow...");
-            loop {
-                let bytes;
-                match sk.recv(&mut buffer) {
-                    Err(_) => {
-                        break;
-                    }
-                    Ok(b) => {
-                        bytes = b;
-                    }
-                }
-                reseq.track(&buffer[..bytes]);
-            }
-            let report = SequenceReport {
-                last_seq: reseq.last_seq.unwrap_or(0),
-                missing: reseq.missing,
-                dups: reseq.dups,
-                cnt: reseq.cnt,
-            };
-            ctrl_sk.send_msg(ControlMessage::Report(report));
         }
     } else {
         // client
@@ -188,21 +146,29 @@ fn mainymain(args: Vec<String>) {
     }
 }
 
-fn find_max_pps(sock_addr: SocketAddr, pktlen: usize) -> Result<u32, ()> {
+fn find_max_pps(sock_addr: SocketAddr, pktlen: usize) -> Result<u32, String> {
     let mut pps = 1000;
     let secs = 3;
     let mut highest_pps: Option<u32> = None;
     let mut no_update_iters = 0;
 
+    let mut ctrl_sk =
+        TcpStream::connect(sock_addr).expect("open control connection");
+
     loop {
-        let mut ctrl_sk =
-            TcpStream::connect(sock_addr).expect("open control connection");
-        ctrl_sk.send_msg(ControlMessage::RequestFlow);
-        let udp_port = match ctrl_sk.recv_msg() {
-            Some(ControlMessage::ExpectFlow(udp_port)) => udp_port,
-            _ => panic!("Cannot initiate new flow"),
-        };
-        let mut sender = UdpSocket::bind("0.0.0.0:0").expect("bind sender");
+        ctrl_sk.send_msg(ControlMessage::RequestFlow)?;
+        let udp_port;
+        loop {
+            match ctrl_sk.recv_msg().expect("initiate new flow") {
+                ControlMessage::ExpectFlow(p) => {
+                    udp_port = p;
+                    break;
+                }
+                _ => (),
+            };
+        }
+
+        let sender = UdpSocket::bind(("::", 0)).expect("bind sender");
         sender
             .connect((sock_addr.ip(), udp_port))
             .expect("connect to server");
@@ -258,9 +224,119 @@ fn find_max_pps(sock_addr: SocketAddr, pktlen: usize) -> Result<u32, ()> {
                     pps = next_pps;
                 }
             }
-            _ => return Err(()),
+            _ => return Err("unknown control message received".to_string()),
         }
     }
+}
+
+fn receive_flow<T>(sk: UdpSocket, mut abort_cond: T) -> SequenceReport
+where
+    T: FnMut() -> bool + Sized,
+{
+    let mut reseq = ReSequencer::new(|buf: &[u8]| {
+        (buf[3] as u32) | (buf[2] as u32) << 8 | (buf[1] as u32) << 16
+            | (buf[0] as u32) << 24
+    });
+
+    let mut buffer = [0; 2000];
+
+    println!("Wait for incoming flow...");
+    sk.peek(&mut buffer)
+        .expect("look for available data");
+    sk.set_read_timeout(Some(Duration::from_millis(1000)))
+        .expect("set timeout to detect finished flow");
+
+    println!("Receive flow...");
+    loop {
+        let bytes;
+        match sk.recv(&mut buffer) {
+            Err(_) => {
+                // XXX check abort condition after timeout only
+                println!("check abort_cond");
+                if abort_cond() {
+                    println!("abort");
+                    break;
+                } else {
+                    println!("continue");
+                    continue;
+                }
+            }
+            Ok(b) => {
+                bytes = b;
+            }
+        }
+        reseq.track(&buffer[..bytes]);
+    }
+
+    SequenceReport {
+        last_seq: reseq.last_seq.unwrap_or(0),
+        missing: reseq.missing,
+        dups: reseq.dups,
+        cnt: reseq.cnt,
+    }
+}
+
+fn serve_client(mut ctrl_sk: TcpStream) -> Result<(), String> {
+    let mut workers: Vec<FlowWorker> = Vec::new();
+
+    let host = ctrl_sk
+        .local_addr()
+        .expect("derive local ip from ctrl socket")
+        .ip();
+
+    loop {
+        let message = ctrl_sk.recv_msg()?;
+        println!("received message: {:?}", message);
+
+        match message {
+            ControlMessage::RequestFlow => {
+                let w = spawn_flow_worker(host)?;
+                ctrl_sk.send_msg(ControlMessage::ExpectFlow(w.port))?;
+                workers.push(w);
+            }
+            _ => {
+                return Err("unsupported control message received".to_string())
+            }
+        };
+    }
+}
+
+struct FlowWorker {
+    worker: thread::JoinHandle<Result<(), String>>,
+    worker_in: mpsc::Sender<ControlMessage>,
+    worker_out: mpsc::Receiver<ControlMessage>,
+    port: u16,
+}
+
+fn spawn_flow_worker(host: std::net::IpAddr) -> Result<FlowWorker, String> {
+    let sk = UdpSocket::bind((host, 0)).map_err(|e| e.to_string())?;
+
+    let port = sk.local_addr()
+        .expect("get port from receiving socket")
+        .port();
+    let (worker_in_prod, worker_in_cons) = mpsc::channel::<ControlMessage>();
+    let (worker_out_prod, worker_out_cons) =
+        mpsc::channel::<ControlMessage>();
+
+    let worker = thread::spawn(move || -> Result<(), String> {
+        let report = receive_flow(sk, || match worker_in_cons.try_recv() {
+            Err(mpsc::TryRecvError::Disconnected) => true,
+            _ => false,
+        });
+
+        worker_out_prod
+            .send(ControlMessage::Report(report))
+            .map_err(|e| e.to_string())?;
+
+        Ok(())
+    });
+
+    Ok(FlowWorker {
+        worker,
+        worker_in: worker_in_prod,
+        worker_out: worker_out_cons,
+        port,
+    })
 }
 
 #[cfg(test)]
