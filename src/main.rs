@@ -17,6 +17,8 @@ use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
 use std::net::{TcpListener, TcpStream, UdpSocket};
+use std::sync::mpsc;
+use std::thread;
 use std::time::Duration;
 use structopt::StructOpt;
 
@@ -49,33 +51,37 @@ fn store_seq(mut buf: Box<[u8]>, seq: u32) -> Box<[u8]> {
 }
 
 trait ControlStream {
-    fn send_msg(&mut self, ControlMessage);
-    fn recv_msg(&mut self) -> Option<ControlMessage>;
+    fn send_msg(&mut self, ControlMessage) -> Result<(), String>;
+    fn recv_msg(&mut self) -> Result<ControlMessage, String>;
 }
 
 impl<T> ControlStream for T
 where
     T: Read + Write,
 {
-    fn send_msg(&mut self, msg: ControlMessage) {
-        self.write(&serde_json::to_vec(&msg).unwrap())
-            .expect("send message");
-        self.write(&[0]).expect("terminate message");
-        self.flush().expect("complete datagram");
+    fn send_msg(&mut self, msg: ControlMessage) -> Result<(), String> {
+        let mut data = serde_json::to_vec(&msg).map_err(|e| e.to_string())?;
+        data.push(0);
+        self.write(&data)
+            .and(self.flush())
+            .map_err(|e| e.to_string())
+            .map(|_| ())
     }
 
-    fn recv_msg(&mut self) -> Option<ControlMessage> {
+    fn recv_msg(&mut self) -> Result<ControlMessage, String> {
         use std::io::{BufRead, BufReader};
         let mut buf_stream = BufReader::new(self);
         let mut message_data: Vec<u8> = Vec::new();
+
         buf_stream
             .read_until(0, &mut message_data)
-            .expect("receive message");
-        message_data.pop();
-        let message: ControlMessage = serde_json::from_slice(&message_data)
-            .expect("deserialize control message");
+            .map_err(|e| e.to_string())?;
 
-        Some(message)
+        message_data.pop();
+        let message: ControlMessage = serde_json::from_slice(
+            &message_data,
+        ).map_err(|e| e.to_string())?;
+        Ok(message)
     }
 }
 
@@ -217,7 +223,7 @@ fn find_max_pps(sock_addr: SocketAddr, pktlen: usize) -> Result<u32, ()> {
         sender = flow.to_socket();
 
         match ctrl_sk.recv_msg() {
-            Some(ControlMessage::Report(r)) => {
+            Ok(ControlMessage::Report(r)) => {
                 // println!("{:?}", r);
                 let next_pps;
                 let missing_sum = r.missing
