@@ -126,9 +126,8 @@ fn mainymain(args: Vec<String>) {
         }
     } else {
         // client
-        let mut sock_addrs = (host, opt.port)
-            .to_socket_addrs()
-            .expect("resolve host");
+        let mut sock_addrs =
+            (host, opt.port).to_socket_addrs().expect("resolve host");
         let sock_addr = sock_addrs.nth(0).unwrap();
         let len: (u32, u32) = (800, 1200);
         let pps = (
@@ -145,10 +144,7 @@ fn mainymain(args: Vec<String>) {
             pps.0 as i64 * (len.0 as i64 + overhead),
             pps.1 as i64 * (len.1 as i64 + overhead),
         );
-        println!(
-            "gross_rate {:?}",
-            gross_rate.0.min(gross_rate.1)
-        );
+        println!("gross_rate {:?}", gross_rate.0.min(gross_rate.1));
     }
 }
 
@@ -240,15 +236,16 @@ where
     T: FnMut() -> bool + Sized,
 {
     let mut reseq = ReSequencer::new(|buf: &[u8]| {
-        (buf[3] as u32) | (buf[2] as u32) << 8 | (buf[1] as u32) << 16
+        (buf[3] as u32)
+            | (buf[2] as u32) << 8
+            | (buf[1] as u32) << 16
             | (buf[0] as u32) << 24
     });
 
     let mut buffer = [0; 2000];
 
     println!("Wait for incoming flow...");
-    sk.peek(&mut buffer)
-        .expect("look for available data");
+    sk.peek(&mut buffer).expect("look for available data");
     sk.set_read_timeout(Some(Duration::from_millis(1000)))
         .expect("set timeout to detect finished flow");
 
@@ -393,7 +390,9 @@ mod tests {
 
         let mut seq = Sequencer::new(::store_seq);
         let mut reseq = ReSequencer::new(|buf: &[u8]| {
-            (buf[3] as u32) | (buf[2] as u32) << 8 | (buf[1] as u32) << 16
+            (buf[3] as u32)
+                | (buf[2] as u32) << 8
+                | (buf[1] as u32) << 16
                 | (buf[0] as u32) << 24
         });
         let pps = 1000;
@@ -459,11 +458,6 @@ mod tests {
         });
         thread::sleep(Duration::from_millis(200));
         let client_opts = vec!["qosmap", "127.0.0.1", "-p", "4801"];
-        ::mainymain(
-            client_opts
-                .iter()
-                .map(|x| String::from(*x))
-                .collect(),
-        );
+        ::mainymain(client_opts.iter().map(|x| String::from(*x)).collect());
     }
 }
