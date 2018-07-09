@@ -42,14 +42,6 @@ struct Opt {
     duration: u64,
 }
 
-fn store_seq(mut buf: Box<[u8]>, seq: u32) -> Box<[u8]> {
-    buf[0] = ((seq >> 24) & 0xff) as u8;
-    buf[1] = ((seq >> 16) & 0xff) as u8;
-    buf[2] = ((seq >> 8) & 0xff) as u8;
-    buf[3] = ((seq >> 0) & 0xff) as u8;
-    buf
-}
-
 trait ControlStream {
     fn send_msg(&mut self, ControlMessage) -> Result<(), String>;
     fn recv_msg(&mut self) -> Result<ControlMessage, String>;
@@ -98,6 +90,20 @@ enum ControlMessage {
     Report(SequenceReport),
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+struct Payload {
+    seq: u32,
+}
+
+impl Payload {
+    fn flatten_into(self, buf: &mut [u8]) {
+        let mut payload_vec = serde_json::to_vec(&self).unwrap();
+
+        payload_vec.resize(buf.len(), ' ' as u8);
+        buf.copy_from_slice(&payload_vec);
+    }
+}
+
 fn main() {
     mainymain(env::args().collect::<Vec<_>>());
 }
@@ -108,7 +114,7 @@ fn mainymain(args: Vec<String>) {
 
     let host = match opt.host {
         Some(ref ip) => &ip[..],
-        _ => "",
+        _ => "::",
     };
 
     if opt.server {
@@ -175,19 +181,29 @@ fn find_max_pps(sock_addr: SocketAddr, pktlen: usize) -> Result<u32, String> {
             .connect((sock_addr.ip(), udp_port))
             .expect("connect to server");
 
-        let mut seq = Sequencer::new(store_seq);
+        let mut seq = Sequencer::new();
         let mut flow = Flow::from_socket(
             pps,
             pktlen,
             Duration::from_secs(secs),
-            move |mut payload: Box<[u8]>| {
-                payload = seq.mark(payload);
-                Ok(payload)
+            // XXX this whole concept doesn't look very efficient
+            move |mut buf: Box<[u8]>| {
+                let payload = Payload {
+                    seq: seq.next_seq(),
+                };
+                payload.flatten_into(&mut buf);
+                Ok(buf)
             },
             sender,
         );
         println!("run flow with pps {}", pps);
-        flow.start_xmit();
+        let underruns = flow.start_xmit();
+        if underruns > 0 {
+            return Err(format!(
+                "Could not generate the requested rate of {} pps",
+                pps
+            ));
+        }
 
         ctrl_sk.send_msg(ControlMessage::TerminateFlow(udp_port))?;
         match ctrl_sk.recv_msg() {
@@ -235,12 +251,7 @@ fn receive_flow<T>(sk: UdpSocket, mut abort_cond: T) -> SequenceReport
 where
     T: FnMut() -> bool + Sized,
 {
-    let mut reseq = ReSequencer::new(|buf: &[u8]| {
-        (buf[3] as u32)
-            | (buf[2] as u32) << 8
-            | (buf[1] as u32) << 16
-            | (buf[0] as u32) << 24
-    });
+    let mut reseq = ReSequencer::new();
 
     let mut buffer = [0; 2000];
 
@@ -268,7 +279,9 @@ where
                 bytes = b;
             }
         }
-        reseq.track(&buffer[..bytes]);
+        let payload: Payload =
+            serde_json::from_slice(&buffer[..bytes]).unwrap();
+        reseq.track(payload.seq);
     }
 
     SequenceReport {
@@ -366,6 +379,7 @@ mod tests {
     use std::num::Wrapping;
     use std::thread;
     use std::time::Duration;
+    use Payload;
 
     fn fresh_pair_of_socks() -> (UdpSocket, UdpSocket) {
         let port: u16;
@@ -388,23 +402,21 @@ mod tests {
     fn combine_sequence_with_flow() {
         let (sk_snd, sk_rcv) = fresh_pair_of_socks();
 
-        let mut seq = Sequencer::new(::store_seq);
-        let mut reseq = ReSequencer::new(|buf: &[u8]| {
-            (buf[3] as u32)
-                | (buf[2] as u32) << 8
-                | (buf[1] as u32) << 16
-                | (buf[0] as u32) << 24
-        });
+        let mut seq = Sequencer::new();
+        let mut reseq = ReSequencer::new();
         let pps = 1000;
         let secs = 1;
 
         let mut flow = Flow::from_socket(
             pps,
-            10,
+            100,
             Duration::from_secs(secs),
-            move |mut payload: Box<[u8]>| {
-                payload = seq.mark(payload);
-                Ok(payload)
+            move |mut buf: Box<[u8]>| {
+                let payload = Payload {
+                    seq: seq.next_seq(),
+                };
+                payload.flatten_into(&mut buf);
+                Ok(buf)
             },
             sk_snd,
         );
@@ -429,7 +441,13 @@ mod tests {
                         bytes = b;
                     }
                 }
-                reseq.track(&buffer[..bytes]);
+                let payload: Payload =
+                    ::serde_json::from_slice(&buffer[..bytes])
+                        .unwrap_or_else(|_| {
+                            println!("bytes: {}", bytes);
+                            Payload { seq: 0u32 }
+                        });
+                reseq.track(payload.seq);
             }
             // wait for sender before the socket goes out of scope
             sender.join().expect("wait for sender");
@@ -443,15 +461,16 @@ mod tests {
         assert_eq!(reseq.dups, 0);
         assert_eq!(reseq.missing, []);
         assert_eq!(
-            (Wrapping(reseq.last_seq.unwrap()) + Wrapping(2)).0,
+            (Wrapping(reseq.last_seq.unwrap()) + Wrapping(1)).0,
             pps / (secs as u32)
         );
     }
+    //#[test]
+    // fn run_main() {
+    //   ::mainymain(vec![String::from("qosmap"), String::from("-h")]);
+    // }
     #[test]
-    fn run_main() {
-        ::mainymain(vec![String::from("qosmap"), String::from("-h")]);
-    }
-    #[test]
+    #[should_panic(expected = "generate the requested rate")]
     fn run_main_server_client() {
         let _server = thread::spawn(|| {
             ::mainymain(vec![String::from("qosmap"), String::from("-s")]);

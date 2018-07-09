@@ -37,9 +37,10 @@ where
         self.sk
     }
 
-    pub fn start_xmit(&mut self) {
+    pub fn start_xmit(&mut self) -> u32 {
         let gap = Duration::new(0, 1_000_000_000 / self.pps);
         let started_at = Instant::now();
+        let mut underruns = 0u32;
 
         // wait relative to sleep_until (as opposed to now()) to
         // compensate for jitter.
@@ -70,15 +71,18 @@ where
             while sleep_until < now {
                 if prepared_buffers.is_empty() {
                     // println!("buffer underrun");
+                    underruns += 1;
                     break;
                 }
                 let data = prepared_buffers.pop().unwrap();
                 self.sk.send(&data).expect("transmit datagram");
                 recycled_buffers.insert(0, data);
 
+                underruns = 0;
                 sleep_until += gap;
             }
         }
+        return underruns;
     }
 }
 
