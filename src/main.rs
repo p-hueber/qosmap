@@ -210,7 +210,8 @@ fn find_max_pps(sock_addr: SocketAddr, pktlen: usize) -> Result<u32, String> {
             Ok(ControlMessage::Report(r)) => {
                 // println!("{:?}", r);
                 let next_pps;
-                let missing_sum = r.missing
+                let missing_sum = r
+                    .missing
                     .iter()
                     .map(|(a, b)| (b + 1) - a)
                     .fold(0, |a, b| a + b);
@@ -342,7 +343,8 @@ struct FlowWorker {
 fn spawn_flow_worker(host: std::net::IpAddr) -> Result<FlowWorker, String> {
     let sk = UdpSocket::bind((host, 0)).map_err(|e| e.to_string())?;
 
-    let port = sk.local_addr()
+    let port = sk
+        .local_addr()
         .expect("get port from receiving socket")
         .port();
     let (worker_in_prod, worker_in_cons) = mpsc::channel::<ControlMessage>();

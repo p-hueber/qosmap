@@ -115,7 +115,7 @@ mod tests {
         flow.to_socket();
     }
 
-    use ::tests::fresh_pair_of_socks;
+    use tests::fresh_pair_of_socks;
     #[test]
     fn flow_xmit() {
         let (sk, sk_rcv) = fresh_pair_of_socks();
