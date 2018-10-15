@@ -381,7 +381,7 @@ mod tests {
     use std::time::Duration;
     use Payload;
 
-    fn fresh_pair_of_socks() -> (UdpSocket, UdpSocket) {
+    pub fn fresh_pair_of_socks() -> (UdpSocket, UdpSocket) {
         let port: u16;
 
         let sender = UdpSocket::bind("127.0.0.1:0").expect("bind sender");

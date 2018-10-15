@@ -115,13 +115,13 @@ mod tests {
         flow.to_socket();
     }
 
+    use ::tests::fresh_pair_of_socks;
     #[test]
     fn flow_xmit() {
-        let sk = UdpSocket::bind("127.0.0.1:48002").expect("bind socket");
-        let sk_rcv = UdpSocket::bind("127.0.0.1:48102").expect("bind socket");
+        let (sk, sk_rcv) = fresh_pair_of_socks();
+
         let size = 100;
         let mut buffer = [0; 2000];
-        sk.connect("127.0.0.1:48102").expect("connect to host");
         let mut flow = Flow::from_socket(
             125,
             size,
