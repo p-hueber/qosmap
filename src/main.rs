@@ -463,7 +463,7 @@ mod tests {
         assert_eq!(reseq.dups, 0);
         assert_eq!(reseq.missing, []);
         assert_eq!(
-            (Wrapping(reseq.last_seq.unwrap()) + Wrapping(1)).0,
+            (Wrapping(reseq.last_seq.unwrap_or_default()) + Wrapping(1)).0,
             pps / (secs as u32)
         );
     }
