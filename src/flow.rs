@@ -130,9 +130,6 @@ mod tests {
             sk,
         );
         flow.start_xmit();
-        sk_rcv
-            .set_nonblocking(true)
-            .expect("set receiver to nonblocking");
         assert!(sk_rcv.peek(&mut buffer).expect("peek a dgram") == size);
     }
 }
