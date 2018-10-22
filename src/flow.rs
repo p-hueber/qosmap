@@ -39,17 +39,17 @@ where
 
     pub fn start_xmit(&mut self) -> u32 {
         let gap = Duration::new(0, 1_000_000_000 / self.pps);
-        let started_at = Instant::now();
         let mut underruns = 0u32;
-
-        // wait relative to sleep_until (as opposed to now()) to
-        // compensate for jitter.
-        let mut sleep_until = started_at + gap;
 
         // self.sk.set_nonblocking(true);
         let mut recycled_buffers =
             vec![vec![0; self.payload_len].into_boxed_slice(); 10];
         let mut prepared_buffers: Vec<Box<[u8]>> = Vec::new();
+
+        // wait relative to sleep_until (as opposed to now()) to
+        // compensate for jitter.
+        let started_at = Instant::now();
+        let mut sleep_until = started_at + gap;
 
         while self.duration > Instant::now().duration_since(started_at) {
             let mut now = Instant::now();
