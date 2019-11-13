@@ -8,7 +8,6 @@ use flow::Flow;
 use std::net::{TcpStream, UdpSocket};
 use std::time::Duration;
 
-
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SequencedPayload {
     pub seq: u32,

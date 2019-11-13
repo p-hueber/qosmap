@@ -67,15 +67,12 @@ where
                 if v.0 == v.1 {
                     self.missing.remove(idx);
                 } else if v.0 == seq {
-                    self.missing[idx].0 =
-                        (Wrapping(seq) + Wrapping(one)).0;
+                    self.missing[idx].0 = (Wrapping(seq) + Wrapping(one)).0;
                 } else if v.1 == seq {
-                    self.missing[idx].1 =
-                        (Wrapping(seq) - Wrapping(one)).0;
+                    self.missing[idx].1 = (Wrapping(seq) - Wrapping(one)).0;
                 } else {
                     let tmp = v.1;
-                    self.missing[idx].1 =
-                        (Wrapping(seq) - Wrapping(one)).0;
+                    self.missing[idx].1 = (Wrapping(seq) - Wrapping(one)).0;
                     self.missing.insert(
                         idx + 1,
                         ((Wrapping(seq) + Wrapping(one)).0, tmp),
@@ -130,4 +127,3 @@ where
         ret
     }
 }
-

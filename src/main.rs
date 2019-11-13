@@ -288,12 +288,12 @@ mod tests {
                         bytes = b;
                     }
                 }
-                let payload: SequencedPayload = ::serde_json::from_slice(
-                    &buffer[..bytes],
-                ).unwrap_or_else(|_| {
-                    println!("bytes: {}", bytes);
-                    SequencedPayload { seq: 0u32 }
-                });
+                let payload: SequencedPayload =
+                    ::serde_json::from_slice(&buffer[..bytes])
+                        .unwrap_or_else(|_| {
+                            println!("bytes: {}", bytes);
+                            SequencedPayload { seq: 0u32 }
+                        });
                 reseq.track(payload.seq);
             }
             // wait for sender before the socket goes out of scope
