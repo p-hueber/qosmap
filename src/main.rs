@@ -8,13 +8,13 @@ extern crate serde_json;
 extern crate structopt;
 
 mod analyze;
+mod control;
 mod flow;
 
-use analyze::sequence::{ReSequencer, SequenceReport, Sequencer};
-use flow::Flow;
+use analyze::sequence::{ReSequencer, SequenceReport};
+use analyze::SequencedPayload;
+use control::{ControlMessage, ControlStream};
 use std::env;
-use std::io::{Read, Write};
-use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
 use std::net::{TcpListener, TcpStream, UdpSocket};
 use std::sync::mpsc;
@@ -40,68 +40,6 @@ struct Opt {
     /// duration of the test in seconds
     #[structopt(short = "d", long = "duration", default_value = "1")]
     duration: u64,
-}
-
-trait ControlStream {
-    fn send_msg(&mut self, ControlMessage) -> Result<(), String>;
-    fn recv_msg(&mut self) -> Result<ControlMessage, String>;
-}
-
-impl<T> ControlStream for T
-where
-    T: Read + Write,
-{
-    fn send_msg(&mut self, msg: ControlMessage) -> Result<(), String> {
-        let mut data = serde_json::to_vec(&msg).map_err(|e| e.to_string())?;
-        data.push(0);
-        self.write(&data)
-            .and(self.flush())
-            .map_err(|e| e.to_string())
-            .map(|_| ())
-    }
-
-    fn recv_msg(&mut self) -> Result<ControlMessage, String> {
-        use std::io::{BufRead, BufReader};
-        let mut buf_stream = BufReader::new(self);
-        let mut message_data: Vec<u8> = Vec::new();
-
-        let bytes = buf_stream
-            .read_until(0, &mut message_data)
-            .map_err(|e| e.to_string())?;
-
-        if bytes == 0 || message_data[bytes - 1] != 0 {
-            // short read due to EOF
-            return Err("Control connection closed by remote side".to_string());
-        } else {
-            message_data.pop();
-            let message: ControlMessage = serde_json::from_slice(
-                &message_data,
-            ).map_err(|e| e.to_string())?;
-            Ok(message)
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-enum ControlMessage {
-    RequestFlow,
-    ExpectFlow(u16),
-    TerminateFlow(u16),
-    Report(SequenceReport),
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct Payload {
-    seq: u32,
-}
-
-impl Payload {
-    fn flatten_into(self, buf: &mut [u8]) {
-        let mut payload_vec = serde_json::to_vec(&self).unwrap();
-
-        payload_vec.resize(buf.len(), ' ' as u8);
-        buf.copy_from_slice(&payload_vec);
-    }
 }
 
 fn main() {
@@ -131,6 +69,7 @@ fn mainymain(args: Vec<String>) {
             });
         }
     } else {
+        use analyze::find_max_pps;
         // client
         let mut sock_addrs =
             (host, opt.port).to_socket_addrs().expect("resolve host");
@@ -151,100 +90,6 @@ fn mainymain(args: Vec<String>) {
             pps.1 as i64 * (len.1 as i64 + overhead),
         );
         println!("gross_rate {:?}", gross_rate.0.min(gross_rate.1));
-    }
-}
-
-fn find_max_pps(sock_addr: SocketAddr, pktlen: usize) -> Result<u32, String> {
-    let mut pps = 1000;
-    let secs = 3;
-    let mut highest_pps: Option<u32> = None;
-    let mut no_update_iters = 0;
-
-    let mut ctrl_sk =
-        TcpStream::connect(sock_addr).expect("open control connection");
-
-    loop {
-        ctrl_sk.send_msg(ControlMessage::RequestFlow)?;
-        let udp_port;
-        loop {
-            match ctrl_sk.recv_msg().expect("initiate new flow") {
-                ControlMessage::ExpectFlow(p) => {
-                    udp_port = p;
-                    break;
-                }
-                _ => (),
-            };
-        }
-
-        let sender = UdpSocket::bind(("::", 0)).expect("bind sender");
-        sender
-            .connect((sock_addr.ip(), udp_port))
-            .expect("connect to server");
-
-        let mut seq = Sequencer::new();
-        let mut flow = Flow::from_socket(
-            pps,
-            pktlen,
-            Duration::from_secs(secs),
-            // XXX this whole concept doesn't look very efficient
-            move |mut buf: Box<[u8]>| {
-                let payload = Payload {
-                    seq: seq.next_seq(),
-                };
-                payload.flatten_into(&mut buf);
-                Ok(buf)
-            },
-            sender,
-        );
-        println!("run flow with pps {}", pps);
-        let underruns = flow.start_xmit();
-        if underruns > 0 {
-            return Err(format!(
-                "Could not generate the requested rate of {} pps",
-                pps
-            ));
-        }
-
-        ctrl_sk.send_msg(ControlMessage::TerminateFlow(udp_port))?;
-        match ctrl_sk.recv_msg() {
-            Ok(ControlMessage::Report(r)) => {
-                // println!("{:?}", r);
-                let next_pps;
-                let missing_sum = r
-                    .missing
-                    .iter()
-                    .map(|(a, b)| (b + 1) - a)
-                    .fold(0, |a, b| a + b);
-                println!("missing_sum={}", missing_sum);
-                let lost_pps =
-                    (missing_sum + (secs as u32) - 1) / (secs as u32);
-                let _passed_pps = pps - lost_pps;
-                let passed_pps =
-                    (r.cnt - r.dups + (secs as u32) - 1) / (secs as u32);
-                println!("pps {} expected {}", passed_pps, _passed_pps);
-                if passed_pps > highest_pps.unwrap_or_default()
-                    || lost_pps == 0
-                {
-                    highest_pps = Some(passed_pps);
-                    next_pps = passed_pps * 2;
-                } else {
-                    no_update_iters += 1;
-                    // retry slightly above the last limit
-                    next_pps = passed_pps + (lost_pps + 1) / 2;
-                }
-                if no_update_iters >= 3 {
-                    println!(
-                        "determined rate {} B/s",
-                        highest_pps.unwrap_or_default() as u64
-                            * pktlen as u64
-                    );
-                    return Ok(highest_pps.unwrap_or_default());
-                } else {
-                    pps = next_pps;
-                }
-            }
-            _ => return Err("unknown control message received".to_string()),
-        }
     }
 }
 
@@ -280,7 +125,7 @@ where
                 bytes = b;
             }
         }
-        let payload: Payload =
+        let payload: SequencedPayload =
             serde_json::from_slice(&buffer[..bytes]).unwrap();
         reseq.track(payload.seq);
     }
@@ -376,12 +221,12 @@ fn spawn_flow_worker(host: std::net::IpAddr) -> Result<FlowWorker, String> {
 #[cfg(test)]
 mod tests {
     use analyze::sequence::{ReSequencer, Sequencer};
+    use analyze::SequencedPayload;
     use flow::Flow;
     use std::net::UdpSocket;
     use std::num::Wrapping;
     use std::thread;
     use std::time::Duration;
-    use Payload;
 
     pub fn fresh_pair_of_socks() -> (UdpSocket, UdpSocket) {
         let port: u16;
@@ -414,7 +259,7 @@ mod tests {
             100,
             Duration::from_secs(secs),
             move |mut buf: Box<[u8]>| {
-                let payload = Payload {
+                let payload = SequencedPayload {
                     seq: seq.next_seq(),
                 };
                 payload.flatten_into(&mut buf);
@@ -443,12 +288,12 @@ mod tests {
                         bytes = b;
                     }
                 }
-                let payload: Payload =
-                    ::serde_json::from_slice(&buffer[..bytes])
-                        .unwrap_or_else(|_| {
-                            println!("bytes: {}", bytes);
-                            Payload { seq: 0u32 }
-                        });
+                let payload: SequencedPayload = ::serde_json::from_slice(
+                    &buffer[..bytes],
+                ).unwrap_or_else(|_| {
+                    println!("bytes: {}", bytes);
+                    SequencedPayload { seq: 0u32 }
+                });
                 reseq.track(payload.seq);
             }
             // wait for sender before the socket goes out of scope
